@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+venv/
+
+# ESPHome
+.esphome/
+secrets.yaml
+
+# OS
+.DS_Store
+
+# Generated packages
+*.zip
