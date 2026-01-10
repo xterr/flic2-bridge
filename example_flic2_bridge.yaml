@@ -1,20 +1,12 @@
-# Flic 2 Bridge for ESPHome
+# Flic 2 Bridge - Example Configuration
+# ======================================
+#
+# Copy this file to your ESPHome config directory and customize:
+# 1. Replace YOUR_API_KEY_HERE with your API encryption key
+# 2. Replace YOUR_OTA_PASSWORD_HERE with your OTA password
+# 3. Make sure wifi_ssid and wifi_password are in your secrets.yaml
+#
 
-ESP32-based bridge to connect Flic 2 Bluetooth buttons to Home Assistant via ESPHome.
-
-## Features
-
-- Auto-discovery of Flic 2 buttons (no manual MAC address configuration)
-- Pairing via Home Assistant button or physical ESP32 button (GPIO0)
-- Supports click, double-click, and hold events
-- Battery level monitoring
-- Persistent pairing (survives reboots)
-
-## Installation
-
-Add to your ESPHome YAML:
-
-```yaml
 substitutions:
   name: "flic2-bridge"
   friendly_name: "Flic 2 Bridge"
@@ -121,21 +113,3 @@ sensor:
     lambda: |-
       return id(flic2_hub)->get_connected_count();
     update_interval: 5s
-```
-
-## Pairing a Flic 2 Button
-
-1. Press **"Flic2 Start Pairing"** button in Home Assistant
-2. Hold your Flic 2 button for **7+ seconds** until LED flashes
-3. Wait for pairing to complete
-4. Button events will appear in the "Last Event" sensor
-
-## Requirements
-
-- ESP32 board
-- ESPHome with ESP-IDF framework (not Arduino)
-- Flic 2 buttons
-
-## License
-
-GPL v3 (due to flic2lib dependency)
