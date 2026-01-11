@@ -28,7 +28,7 @@ class Flic2Hub : public Component, public esp32_ble_tracker::ESPBTDeviceListener
   void loop() override;
   void dump_config() override;
 
-  float get_setup_priority() const override { return setup_priority::BLUETOOTH; }
+  float get_setup_priority() const override { return setup_priority::AFTER_BLUETOOTH; }
 
   void set_pairing_button_pin(InternalGPIOPin *pin) { pairing_button_pin_ = pin; }
 
