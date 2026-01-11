@@ -446,15 +446,23 @@ void flic2_manager_loop(void) {
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param) {
     switch (event) {
         case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT:
+            ESP_LOGI(TAG, "GAP: Scan params set, status=%d, scanning=%d", param->scan_param_cmpl.status, manager.scanning);
             if (param->scan_param_cmpl.status == ESP_BT_STATUS_SUCCESS) {
                 if (manager.scanning) {
-                    esp_ble_gap_start_scanning(0);  // Scan indefinitely
+                    esp_err_t err = esp_ble_gap_start_scanning(0);  // Scan indefinitely
+                    ESP_LOGI(TAG, "GAP: esp_ble_gap_start_scanning returned %s", esp_err_to_name(err));
                 }
             }
             break;
 
         case ESP_GAP_BLE_SCAN_RESULT_EVT:
             if (param->scan_rst.search_evt == ESP_GAP_SEARCH_INQ_RES_EVT) {
+                // Log ALL BLE devices found (for debugging)
+                ESP_LOGD(TAG, "BLE device: %02X:%02X:%02X:%02X:%02X:%02X RSSI:%d",
+                         param->scan_rst.bda[0], param->scan_rst.bda[1],
+                         param->scan_rst.bda[2], param->scan_rst.bda[3],
+                         param->scan_rst.bda[4], param->scan_rst.bda[5],
+                         param->scan_rst.rssi);
                 // Check for Flic2 service UUID in advertisement
                 uint8_t* adv_data = param->scan_rst.ble_adv;
                 uint8_t adv_len = param->scan_rst.adv_data_len;
