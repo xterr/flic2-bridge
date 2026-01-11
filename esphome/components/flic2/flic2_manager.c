@@ -1,7 +1,3 @@
-/**
- * Flic 2 Manager Implementation
- */
-
 #include "flic2_manager.h"
 #include "flic2.h"
 
@@ -20,31 +16,23 @@
 
 static const char* TAG = "flic2_manager";
 
-// GATT client app ID
 #define FLIC2_GATTC_APP_ID 0
-
-// Target MTU for Flic2
 #define FLIC2_TARGET_MTU 140
 
-// Flic2 service and characteristic UUIDs
 static const uint8_t FLIC2_SERVICE_UUID[] = FLIC2_SERVICE_UUID_128;
 static const uint8_t FLIC2_CHAR_WRITE_UUID[] = FLIC2_CHAR_WRITE_UUID_128;
 static const uint8_t FLIC2_CHAR_NOTIFY_UUID[] = FLIC2_CHAR_NOTIFY_UUID_128;
 
-// Manager state
 static struct {
     bool initialized;
     flic2_callbacks_t callbacks;
     flic2_button_instance_t buttons[FLIC2_MAX_BUTTONS];
     int button_count;
     esp_gatt_if_t gattc_if;
-    bool scanning;
     SemaphoreHandle_t mutex;
     uint64_t rand_nonce;
 } manager = {0};
 
-// Forward declarations
-static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param);
 static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t* param);
 static flic2_button_instance_t* find_button_by_addr(const uint8_t bd_addr[6]);
 static flic2_button_instance_t* find_button_by_conn_id(uint16_t conn_id);
@@ -53,107 +41,37 @@ static flic2_button_instance_t* allocate_button(const uint8_t bd_addr[6]);
 static void process_flic2_events(flic2_button_instance_t* instance);
 static void handle_db_update(flic2_button_instance_t* instance, struct Flic2DbUpdate* db_update);
 
-// ============================================================================
-// Initialization
-// ============================================================================
-
 esp_err_t flic2_manager_init(const flic2_callbacks_t* callbacks) {
-    ESP_LOGW(TAG, "=== flic2_manager_init() called ===");
+    ESP_LOGI(TAG, "Initializing Flic2 manager");
 
     if (manager.initialized) {
-        ESP_LOGW(TAG, "Already initialized, returning");
+        ESP_LOGW(TAG, "Already initialized");
         return ESP_ERR_INVALID_STATE;
     }
 
-    // Initialize storage
-    ESP_LOGI(TAG, "Step 1: Init storage...");
     esp_err_t err = flic2_storage_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to init storage: %s", esp_err_to_name(err));
         return err;
     }
-    ESP_LOGI(TAG, "Storage OK");
 
-    // Create mutex
-    ESP_LOGI(TAG, "Step 2: Create mutex...");
     manager.mutex = xSemaphoreCreateMutex();
     if (manager.mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create mutex");
         return ESP_ERR_NO_MEM;
     }
-    ESP_LOGI(TAG, "Mutex OK");
 
-    // Store callbacks
     if (callbacks) {
         memcpy(&manager.callbacks, callbacks, sizeof(flic2_callbacks_t));
     }
 
-    // Initialize Bluetooth controller (may already be initialized by ESPHome)
-    ESP_LOGI(TAG, "Step 3: BT controller init...");
-    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    err = esp_bt_controller_init(&bt_cfg);
-    if (err == ESP_ERR_INVALID_STATE) {
-        ESP_LOGI(TAG, "BT controller already initialized");
-    } else if (err != ESP_OK) {
-        ESP_LOGE(TAG, "BT controller init failed: %s", esp_err_to_name(err));
-        return err;
-    } else {
-        ESP_LOGI(TAG, "BT controller init OK");
-    }
-
-    ESP_LOGI(TAG, "Step 4: BT controller enable...");
-    err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-    if (err == ESP_ERR_INVALID_STATE) {
-        ESP_LOGI(TAG, "BT controller already enabled");
-    } else if (err != ESP_OK) {
-        ESP_LOGE(TAG, "BT controller enable failed: %s", esp_err_to_name(err));
-        return err;
-    } else {
-        ESP_LOGI(TAG, "BT controller enable OK");
-    }
-
-    // Initialize Bluedroid (may already be initialized by ESPHome)
-    ESP_LOGI(TAG, "Step 5: Bluedroid init...");
-    err = esp_bluedroid_init();
-    if (err == ESP_ERR_INVALID_STATE) {
-        ESP_LOGI(TAG, "Bluedroid already initialized");
-    } else if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Bluedroid init failed: %s", esp_err_to_name(err));
-        return err;
-    } else {
-        ESP_LOGI(TAG, "Bluedroid init OK");
-    }
-
-    ESP_LOGI(TAG, "Step 6: Bluedroid enable...");
-    err = esp_bluedroid_enable();
-    if (err == ESP_ERR_INVALID_STATE) {
-        ESP_LOGI(TAG, "Bluedroid already enabled");
-    } else if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Bluedroid enable failed: %s", esp_err_to_name(err));
-        return err;
-    } else {
-        ESP_LOGI(TAG, "Bluedroid enable OK");
-    }
-
-    // Register GAP callback (this may fail if ESPHome already registered one)
-    err = esp_ble_gap_register_callback(gap_event_handler);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "GAP register callback returned: %s (may be OK if ESPHome registered one)", esp_err_to_name(err));
-        // Don't return - try to continue anyway
-    } else {
-        ESP_LOGI(TAG, "GAP callback registered");
-    }
-
-    // Register GATTC callback
     err = esp_ble_gattc_register_callback(gattc_event_handler);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "GATTC register callback returned: %s", esp_err_to_name(err));
-        // Don't return - try to continue anyway
     } else {
         ESP_LOGI(TAG, "GATTC callback registered");
     }
 
-    // Register GATTC app
     err = esp_ble_gattc_app_register(FLIC2_GATTC_APP_ID);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "GATTC app register failed: %s", esp_err_to_name(err));
@@ -161,13 +79,11 @@ esp_err_t flic2_manager_init(const flic2_callbacks_t* callbacks) {
     }
     ESP_LOGI(TAG, "GATTC app registered");
 
-    // Set MTU
     err = esp_ble_gatt_set_local_mtu(FLIC2_TARGET_MTU);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Set MTU failed: %s (non-fatal)", esp_err_to_name(err));
     }
 
-    // Load paired buttons
     uint8_t paired_addrs[FLIC2_MAX_BUTTONS][6];
     int paired_count = flic2_storage_list_paired(paired_addrs, FLIC2_MAX_BUTTONS);
 
@@ -199,7 +115,6 @@ esp_err_t flic2_manager_deinit(void) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    // Disconnect all buttons
     for (int i = 0; i < manager.button_count; i++) {
         if (manager.buttons[i].conn_state != FLIC2_CONN_STATE_DISCONNECTED) {
             flic2_manager_disconnect(manager.buttons[i].bd_addr);
@@ -207,11 +122,6 @@ esp_err_t flic2_manager_deinit(void) {
     }
 
     esp_ble_gattc_app_unregister(manager.gattc_if);
-    esp_bluedroid_disable();
-    esp_bluedroid_deinit();
-    esp_bt_controller_disable();
-    esp_bt_controller_deinit();
-
     vSemaphoreDelete(manager.mutex);
 
     memset(&manager, 0, sizeof(manager));
@@ -219,52 +129,6 @@ esp_err_t flic2_manager_deinit(void) {
 
     return ESP_OK;
 }
-
-// ============================================================================
-// Scanning
-// ============================================================================
-
-esp_err_t flic2_manager_start_scan(uint32_t duration_seconds) {
-    if (!manager.initialized) {
-        ESP_LOGE(TAG, "Cannot start scan - manager not initialized!");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    ESP_LOGI(TAG, "Starting BLE scan for Flic2 buttons (%lu sec)", duration_seconds);
-
-    esp_ble_scan_params_t scan_params = {
-        .scan_type = BLE_SCAN_TYPE_ACTIVE,
-        .own_addr_type = BLE_ADDR_TYPE_PUBLIC,
-        .scan_filter_policy = BLE_SCAN_FILTER_ALLOW_ALL,
-        .scan_interval = 0x50,  // 50ms
-        .scan_window = 0x30,    // 30ms
-        .scan_duplicate = BLE_SCAN_DUPLICATE_DISABLE
-    };
-
-    esp_err_t err = esp_ble_gap_set_scan_params(&scan_params);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Set scan params failed: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    // Scanning will start after ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT
-    manager.scanning = true;
-
-    return ESP_OK;
-}
-
-esp_err_t flic2_manager_stop_scan(void) {
-    if (!manager.initialized) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    manager.scanning = false;
-    return esp_ble_gap_stop_scanning();
-}
-
-// ============================================================================
-// Connection Management
-// ============================================================================
 
 esp_err_t flic2_manager_pair(const uint8_t bd_addr[6]) {
     if (!manager.initialized) {
@@ -284,14 +148,12 @@ esp_err_t flic2_manager_pair(const uint8_t bd_addr[6]) {
         }
     }
 
-    // Initialize for new pairing (no stored data)
     uint8_t rand_seed[16];
     flic2_platform_get_random(rand_seed, sizeof(rand_seed));
     flic2_init(&instance->button, bd_addr, NULL, rand_seed, manager.rand_nonce++);
     instance->paired = false;
     instance->conn_state = FLIC2_CONN_STATE_CONNECTING;
 
-    // Connect
     esp_ble_addr_type_t addr_type = BLE_ADDR_TYPE_PUBLIC;
     return esp_ble_gattc_open(manager.gattc_if, (uint8_t*)bd_addr, addr_type, true);
 }
@@ -348,28 +210,19 @@ esp_err_t flic2_manager_unpair(const uint8_t bd_addr[6]) {
         return ESP_ERR_NOT_FOUND;
     }
 
-    // Disconnect first
     if (instance->conn_state != FLIC2_CONN_STATE_DISCONNECTED) {
         flic2_manager_disconnect(bd_addr);
     }
 
-    // Remove from storage
     flic2_storage_delete(bd_addr);
-
-    // Mark as unpaired
     instance->paired = false;
 
-    // Notify callback
     if (manager.callbacks.on_unpaired) {
         manager.callbacks.on_unpaired((uint8_t*)bd_addr);
     }
 
     return ESP_OK;
 }
-
-// ============================================================================
-// Query Functions
-// ============================================================================
 
 int flic2_manager_get_paired(uint8_t (*bd_addrs)[6], int max_count) {
     return flic2_storage_list_paired(bd_addrs, max_count);
@@ -411,10 +264,6 @@ uint16_t flic2_manager_get_battery_mv(const uint8_t bd_addr[6]) {
     return instance->button.d.battery_voltage_millivolt;
 }
 
-// ============================================================================
-// Main Loop
-// ============================================================================
-
 void flic2_manager_loop(void) {
     if (!manager.initialized) {
         return;
@@ -428,7 +277,6 @@ void flic2_manager_loop(void) {
     for (int i = 0; i < manager.button_count; i++) {
         flic2_button_instance_t* instance = &manager.buttons[i];
 
-        // Check timer
         if (instance->timer_active && current_us >= instance->timer_target_us) {
             instance->timer_active = false;
             flic2_on_timer(&instance->button, current_time);
@@ -438,72 +286,6 @@ void flic2_manager_loop(void) {
 
     xSemaphoreGive(manager.mutex);
 }
-
-// ============================================================================
-// GAP Event Handler
-// ============================================================================
-
-static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param) {
-    switch (event) {
-        case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT:
-            ESP_LOGI(TAG, "GAP: Scan params set, status=%d, scanning=%d", param->scan_param_cmpl.status, manager.scanning);
-            if (param->scan_param_cmpl.status == ESP_BT_STATUS_SUCCESS) {
-                if (manager.scanning) {
-                    esp_err_t err = esp_ble_gap_start_scanning(0);  // Scan indefinitely
-                    ESP_LOGI(TAG, "GAP: esp_ble_gap_start_scanning returned %s", esp_err_to_name(err));
-                }
-            }
-            break;
-
-        case ESP_GAP_BLE_SCAN_RESULT_EVT:
-            if (param->scan_rst.search_evt == ESP_GAP_SEARCH_INQ_RES_EVT) {
-                // Log ALL BLE devices found (for debugging)
-                ESP_LOGD(TAG, "BLE device: %02X:%02X:%02X:%02X:%02X:%02X RSSI:%d",
-                         param->scan_rst.bda[0], param->scan_rst.bda[1],
-                         param->scan_rst.bda[2], param->scan_rst.bda[3],
-                         param->scan_rst.bda[4], param->scan_rst.bda[5],
-                         param->scan_rst.rssi);
-                // Check for Flic2 service UUID in advertisement
-                uint8_t* adv_data = param->scan_rst.ble_adv;
-                uint8_t adv_len = param->scan_rst.adv_data_len;
-
-                // Parse advertisement data looking for 128-bit service UUID
-                int pos = 0;
-                while (pos < adv_len) {
-                    uint8_t len = adv_data[pos];
-                    if (len == 0) break;
-
-                    uint8_t type = adv_data[pos + 1];
-
-                    // Complete 128-bit service UUID
-                    if (type == 0x07 && len >= 17) {
-                        if (memcmp(&adv_data[pos + 2], FLIC2_SERVICE_UUID, 16) == 0) {
-                            ESP_LOGI(TAG, "Found Flic2 button: %02X:%02X:%02X:%02X:%02X:%02X RSSI: %d",
-                                     param->scan_rst.bda[0], param->scan_rst.bda[1],
-                                     param->scan_rst.bda[2], param->scan_rst.bda[3],
-                                     param->scan_rst.bda[4], param->scan_rst.bda[5],
-                                     param->scan_rst.rssi);
-                        }
-                    }
-
-                    pos += len + 1;
-                }
-            }
-            break;
-
-        case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT:
-            ESP_LOGI(TAG, "Scan stopped");
-            manager.scanning = false;
-            break;
-
-        default:
-            break;
-    }
-}
-
-// ============================================================================
-// GATTC Event Handler
-// ============================================================================
 
 static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                                  esp_ble_gattc_cb_param_t* param) {
@@ -529,7 +311,6 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                     instance->gattc_if = gattc_if;
                     instance->conn_state = FLIC2_CONN_STATE_DISCOVERING_SERVICES;
 
-                    // Request MTU exchange
                     esp_ble_gattc_send_mtu_req(gattc_if, param->open.conn_id);
                 }
             } else {
@@ -547,14 +328,12 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                 instance = find_button_by_conn_id(param->cfg_mtu.conn_id);
                 if (instance) {
                     instance->mtu = param->cfg_mtu.mtu;
-                    // Start service discovery
                     esp_ble_gattc_search_service(gattc_if, param->cfg_mtu.conn_id, NULL);
                 }
             }
             break;
 
         case ESP_GATTC_SEARCH_RES_EVT:
-            // Service found
             if (param->search_res.srvc_id.uuid.len == ESP_UUID_LEN_128) {
                 if (memcmp(param->search_res.srvc_id.uuid.uuid.uuid128,
                           FLIC2_SERVICE_UUID, 16) == 0) {
@@ -563,7 +342,6 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
 
                     instance = find_button_by_conn_id(param->search_res.conn_id);
                     if (instance) {
-                        // Get characteristics
                         uint16_t count = 0;
                         esp_gatt_status_t status = esp_ble_gattc_get_attr_count(
                             gattc_if, param->search_res.conn_id,
@@ -613,7 +391,6 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             if (instance && instance->write_handle && instance->notify_handle) {
                 instance->conn_state = FLIC2_CONN_STATE_REGISTERING_NOTIFY;
 
-                // Get CCCD handle and register for notifications
                 uint16_t count = 1;
                 esp_gattc_descr_elem_t descr;
                 esp_bt_uuid_t cccd_uuid = {
@@ -637,10 +414,8 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             if (param->reg_for_notify.status == ESP_GATT_OK) {
                 ESP_LOGI(TAG, "Registered for notifications");
 
-                // Find instance by notify handle (remote_bda not available in ESP-IDF 5.x)
                 instance = find_button_by_notify_handle(param->reg_for_notify.handle);
                 if (instance) {
-                    // Enable notifications by writing to CCCD
                     uint16_t notify_enable = 1;
                     esp_ble_gattc_write_char_descr(
                         gattc_if, instance->conn_id,
@@ -661,13 +436,11 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                 if (instance) {
                     instance->conn_state = FLIC2_CONN_STATE_CONNECTED;
 
-                    // Start Flic2 protocol session
                     double current_time = flic2_platform_get_steady_time();
                     flic2_start(&instance->button, current_time, instance->mtu);
 
                     process_flic2_events(instance);
 
-                    // Notify callback
                     if (manager.callbacks.on_connection_change) {
                         manager.callbacks.on_connection_change(instance->bd_addr, true);
                     }
@@ -676,7 +449,6 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             break;
 
         case ESP_GATTC_NOTIFY_EVT:
-            // Incoming notification from Flic2 button
             instance = find_button_by_conn_id(param->notify.conn_id);
             if (instance && param->notify.handle == instance->notify_handle) {
                 double utc_time = flic2_platform_get_utc_time();
@@ -710,17 +482,12 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
     }
 }
 
-// ============================================================================
-// Flic2 Event Processing
-// ============================================================================
-
 static void process_flic2_events(flic2_button_instance_t* instance) {
     struct Flic2Event event;
     double utc_time = flic2_platform_get_utc_time();
     double steady_time = flic2_platform_get_steady_time();
 
     while (flic2_get_next_event(&instance->button, utc_time, steady_time, &event, true)) {
-        // Handle DB updates
         if (event.db_update.type != FLIC2_DB_UPDATE_TYPE_NONE) {
             handle_db_update(instance, &event.db_update);
         }
@@ -739,7 +506,6 @@ static void process_flic2_events(flic2_button_instance_t* instance) {
                 break;
 
             case FLIC2_EVENT_TYPE_OUTGOING_PACKET:
-                // Write to button
                 esp_ble_gattc_write_char(
                     instance->gattc_if, instance->conn_id,
                     instance->write_handle,
@@ -821,7 +587,6 @@ static void process_flic2_events(flic2_button_instance_t* instance) {
                 break;
 
             case FLIC2_EVENT_TYPE_CHECK_FIRMWARE_REQUEST:
-                // We don't support firmware updates in this implementation
                 ESP_LOGI(TAG, "Firmware check requested (not implemented)");
                 flic2_on_downloaded_firmware(&instance->button, utc_time, steady_time,
                                              FLIC2_FIRMWARE_DOWNLOAD_RESULT_FAILED, NULL, 0);
@@ -848,10 +613,6 @@ static void handle_db_update(flic2_button_instance_t* instance, struct Flic2DbUp
             break;
     }
 }
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
 
 static flic2_button_instance_t* find_button_by_addr(const uint8_t bd_addr[6]) {
     for (int i = 0; i < manager.button_count; i++) {
@@ -883,13 +644,11 @@ static flic2_button_instance_t* find_button_by_notify_handle(uint16_t handle) {
 }
 
 static flic2_button_instance_t* allocate_button(const uint8_t bd_addr[6]) {
-    // Check if already exists
     flic2_button_instance_t* instance = find_button_by_addr(bd_addr);
     if (instance) {
         return instance;
     }
 
-    // Allocate new
     if (manager.button_count >= FLIC2_MAX_BUTTONS) {
         return NULL;
     }
@@ -898,7 +657,7 @@ static flic2_button_instance_t* allocate_button(const uint8_t bd_addr[6]) {
     memset(instance, 0, sizeof(flic2_button_instance_t));
     memcpy(instance->bd_addr, bd_addr, 6);
     instance->conn_state = FLIC2_CONN_STATE_DISCONNECTED;
-    instance->mtu = 23;  // Default MTU
+    instance->mtu = 23;
 
     return instance;
 }

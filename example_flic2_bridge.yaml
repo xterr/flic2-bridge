@@ -1,12 +1,3 @@
-# Flic 2 Bridge - Example Configuration
-# ======================================
-#
-# Copy this file to your ESPHome config directory and customize:
-# 1. Replace YOUR_API_KEY_HERE with your API encryption key
-# 2. Replace YOUR_OTA_PASSWORD_HERE with your OTA password
-# 3. Make sure wifi_ssid and wifi_password are in your secrets.yaml
-#
-
 substitutions:
   name: "flic2-bridge"
   friendly_name: "Flic 2 Bridge"
@@ -46,15 +37,20 @@ wifi:
 
 captive_portal:
 
-# Flic 2 Component
+esp32_ble_tracker:
+  scan_parameters:
+    duration: 300s
+    interval: 320ms
+    window: 30ms
+
 external_components:
   - source: github://xterr/flic2-bridge@main
+    refresh: 0s
 
 flic2:
   id: flic2_hub
-  pairing_button_pin: GPIO0  # Optional: BOOT button on most ESP32 dev boards
+  pairing_button_pin: GPIO0
 
-# Control Buttons
 button:
   - platform: template
     name: "Flic2 Start Pairing"
@@ -80,7 +76,6 @@ button:
       - flic2.unpair_all:
           id: flic2_hub
 
-# Status Sensors
 binary_sensor:
   - platform: template
     name: "Flic2 Pairing Active"
