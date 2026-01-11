@@ -66,13 +66,35 @@ static char* bd_addr_to_key(const uint8_t bd_addr[6], char* key_buf) {
 }
 
 esp_err_t flic2_storage_init(void) {
-    esp_err_t err = nvs_flash_init();
+    // ESPHome already initializes NVS, so we just verify it's working
+    // by trying to open our namespace
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(FLIC2_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err == ESP_OK) {
+        nvs_close(handle);
+        ESP_LOGI(TAG, "NVS storage ready");
+        return ESP_OK;
+    }
+    
+    // If namespace doesn't exist yet, that's fine - it will be created on first save
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(TAG, "NVS namespace not found (will be created on first pair)");
+        return ESP_OK;
+    }
+    
+    // NVS might not be initialized - try to init
+    ESP_LOGW(TAG, "NVS open failed (%s), trying to initialize", esp_err_to_name(err));
+    err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "NVS partition needs erase");
         err = nvs_flash_erase();
         if (err == ESP_OK) {
             err = nvs_flash_init();
         }
+    }
+    
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(err));
     }
     return err;
 }

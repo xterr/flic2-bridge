@@ -42,50 +42,59 @@ static void process_flic2_events(flic2_button_instance_t* instance);
 static void handle_db_update(flic2_button_instance_t* instance, struct Flic2DbUpdate* db_update);
 
 esp_err_t flic2_manager_init(const flic2_callbacks_t* callbacks) {
-    ESP_LOGI(TAG, "Initializing Flic2 manager");
+    ESP_LOGI(TAG, "Initializing Flic2 manager...");
 
     if (manager.initialized) {
         ESP_LOGW(TAG, "Already initialized");
         return ESP_ERR_INVALID_STATE;
     }
 
+    ESP_LOGI(TAG, "Step 1: Initializing storage...");
     esp_err_t err = flic2_storage_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to init storage: %s", esp_err_to_name(err));
         return err;
     }
+    ESP_LOGI(TAG, "Step 1: Storage OK");
 
+    ESP_LOGI(TAG, "Step 2: Creating mutex...");
     manager.mutex = xSemaphoreCreateMutex();
     if (manager.mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create mutex");
         return ESP_ERR_NO_MEM;
     }
+    ESP_LOGI(TAG, "Step 2: Mutex OK");
 
     if (callbacks) {
         memcpy(&manager.callbacks, callbacks, sizeof(flic2_callbacks_t));
     }
 
+    ESP_LOGI(TAG, "Step 3: Registering GATTC callback...");
     err = esp_ble_gattc_register_callback(gattc_event_handler);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "GATTC register callback returned: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "GATTC register callback returned: %s (continuing anyway)", esp_err_to_name(err));
     } else {
-        ESP_LOGI(TAG, "GATTC callback registered");
+        ESP_LOGI(TAG, "Step 3: GATTC callback OK");
     }
 
+    ESP_LOGI(TAG, "Step 4: Registering GATTC app...");
     err = esp_ble_gattc_app_register(FLIC2_GATTC_APP_ID);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "GATTC app register failed: %s", esp_err_to_name(err));
         return err;
     }
     if (err == ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(TAG, "GATTC app already registered");
+        ESP_LOGW(TAG, "Step 4: GATTC app already registered (OK)");
     } else {
-        ESP_LOGI(TAG, "GATTC app registered");
+        ESP_LOGI(TAG, "Step 4: GATTC app OK");
     }
 
+    ESP_LOGI(TAG, "Step 5: Setting MTU...");
     err = esp_ble_gatt_set_local_mtu(FLIC2_TARGET_MTU);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Set MTU failed: %s (non-fatal)", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "Step 5: MTU OK");
     }
 
     uint8_t paired_addrs[FLIC2_MAX_BUTTONS][6];
