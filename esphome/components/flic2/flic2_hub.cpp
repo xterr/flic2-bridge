@@ -114,7 +114,8 @@ void Flic2Hub::start_pairing(uint32_t duration_seconds) {
   pairing_active_ = true;
   pairing_end_time_ = millis() + (duration_seconds * 1000);
 
-  flic2_manager_start_scan(duration_seconds);
+  esp_err_t scan_err = flic2_manager_start_scan(duration_seconds);
+  ESP_LOGI(TAG, "flic2_manager_start_scan returned: %s", esp_err_to_name(scan_err));
 }
 
 void Flic2Hub::stop_pairing() {
