@@ -73,11 +73,15 @@ esp_err_t flic2_manager_init(const flic2_callbacks_t* callbacks) {
     }
 
     err = esp_ble_gattc_app_register(FLIC2_GATTC_APP_ID);
-    if (err != ESP_OK) {
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "GATTC app register failed: %s", esp_err_to_name(err));
         return err;
     }
-    ESP_LOGI(TAG, "GATTC app registered");
+    if (err == ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "GATTC app already registered");
+    } else {
+        ESP_LOGI(TAG, "GATTC app registered");
+    }
 
     err = esp_ble_gatt_set_local_mtu(FLIC2_TARGET_MTU);
     if (err != ESP_OK) {
