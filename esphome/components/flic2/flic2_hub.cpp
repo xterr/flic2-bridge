@@ -98,12 +98,15 @@ bool Flic2Hub::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
     return false;
   }
 
-  ESP_LOGD(TAG, "Scanning device: %s RSSI: %d, services: %d",
-           device.address_str().c_str(), device.get_rssi(),
+  const auto &name = device.get_name();
+  ESP_LOGD(TAG, "Scanning: %s '%s' RSSI:%d svcs:%d",
+           device.address_str().c_str(), 
+           name.empty() ? "" : name.c_str(),
+           device.get_rssi(),
            device.get_service_uuids().size());
 
   for (auto &service_uuid : device.get_service_uuids()) {
-    ESP_LOGV(TAG, "  Service UUID: %s", service_uuid.to_string().c_str());
+    ESP_LOGD(TAG, "  UUID: %s", service_uuid.to_string().c_str());
     if (service_uuid == FLIC2_SERVICE_UUID) {
       uint8_t addr[6];
       uint64_t addr64 = device.address_uint64();
