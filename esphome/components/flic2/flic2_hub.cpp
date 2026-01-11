@@ -17,7 +17,7 @@ Flic2Hub::Flic2Hub() {
 }
 
 void Flic2Hub::setup() {
-  ESP_LOGW(TAG, "=== Flic2 Hub Setup Starting ===");
+  ESP_LOGE(TAG, "######### FLIC2 BUILD 2025-01-11-v1 #########");
 
   // Setup physical pairing button if configured
   if (pairing_button_pin_ != nullptr) {
