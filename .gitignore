@@ -19,3 +19,6 @@ secrets.yaml
 
 # Generated packages
 *.zip
+
+flic2-bridge.yaml
+example_flic2_bridge.yaml
