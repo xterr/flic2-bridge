@@ -9,7 +9,9 @@ namespace flic2 {
 
 static const char *const TAG = "flic2";
 
-static const uint8_t FLIC2_SERVICE_UUID[] = FLIC2_SERVICE_UUID_128;
+static const uint8_t FLIC2_SERVICE_UUID_BYTES[] = FLIC2_SERVICE_UUID_128;
+static const esp32_ble_tracker::ESPBTUUID FLIC2_SERVICE_UUID =
+    esp32_ble_tracker::ESPBTUUID::from_raw(FLIC2_SERVICE_UUID_BYTES);
 
 Flic2Hub *Flic2Hub::instance_ = nullptr;
 
@@ -97,7 +99,7 @@ bool Flic2Hub::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
   }
 
   for (auto &service_uuid : device.get_service_uuids()) {
-    if (service_uuid.contains(FLIC2_SERVICE_UUID, 16)) {
+    if (service_uuid == FLIC2_SERVICE_UUID) {
       uint8_t addr[6];
       uint64_t addr64 = device.address_uint64();
       for (int i = 0; i < 6; i++) {
